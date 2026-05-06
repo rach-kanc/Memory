@@ -3,6 +3,8 @@
 Version: `v0.0`
 
 Memory is the durable store for Memact's retained evidence and virtual schema packets.
+It is the shared layer that lets different Memact apps work from the same
+structured memory instead of rebuilding context from scratch.
 
 It owns one job:
 
@@ -49,7 +51,8 @@ appropriate scope.
   A source URL, timestamp, snippet, score, and claim support record.
 
 - `influence_path`
-  Ordered steps from exposure to content unit, concept, schema, and thought match.
+  Ordered steps that a thought-source app can use when a user asks how a thought
+  may connect to earlier activity.
 
 - `claim`
   An inferred statement separated from raw evidence and final wording.
@@ -95,6 +98,18 @@ createGraphSnapshot(memoryStore)
 
 The context is intentionally small. If an external model is used later, it should receive this context instead of the full captured activity store.
 
+## App Surfaces
+
+Memory is not limited to thought-origin answers. App layers can use the same
+memory graph for:
+
+- digital consumption pattern reports
+- personal knowledge dictionaries from newly encountered concepts
+- research maps across articles, videos, papers, searches, and notes
+- decision-support checks for repeated cues or one-sided inputs
+- learning timelines that show how a topic became familiar
+- thought-source tracing when a user explicitly asks for it
+
 ## API Boundary
 
 Apps should use Memact to capture allowed activity, form schemas, and retrieve
@@ -120,7 +135,9 @@ AI can help word an answer later, but it should not invent sources, causes, or c
 - claims
 - graph snapshots
 
-Unknown origin is a valid result when support is weak.
+For thought-source apps, unknown origin is a valid result when support is weak.
+For other apps, the answer may simply be a pattern, dictionary entry, timeline,
+or memory summary.
 
 ## Run Locally
 
