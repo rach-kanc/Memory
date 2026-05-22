@@ -858,6 +858,29 @@ export function rememberInferenceRecord(record, memoryStore = {}, options = {}) 
 }
 
 export function rememberSchemaPacket(packet, memoryStore = {}) {
+  if (packet?.schema_type === "reading_preferences" || packet?.category === "reading") {
+    const attributes = packet.attributes && typeof packet.attributes === "object" ? packet.attributes : {}
+    return createMemory({
+      id: `memory:reading:${slug(packet.packet_id || packet.id || "reading_preferences")}`,
+      type: "reading_preference_memory",
+      label: "Reading preferences",
+      summary: summarizeReadingPreferences(attributes),
+      strength: clamp(packet.confidence ?? 0.62),
+      confidence: clamp(packet.confidence ?? 0.62),
+      category: "reading",
+      schema_id: "reading_preferences",
+      schema_packet_id: normalize(packet.packet_id || packet.id),
+      schema_refs: ["reading_preferences"],
+      evidence_refs: unique((packet.sources || []).map((source) => source.id || source.source_id || source.url || source.title)),
+      feature_refs: ["adaptive-article-overview"],
+      attributes,
+      themes: unique(["reading", ...(attributes.preferred_topics || []), ...(attributes.repeat_topics || [])]),
+      sources: packet.sources || [],
+      reasons: ["reading preference schema retained"],
+      provenance: { system: "schema", claim_type: "reading_preference_memory" },
+      state: "active"
+    }, memoryStore)
+  }
   return rememberSchema(packet, memoryStore)
 }
 
@@ -903,10 +926,42 @@ export function createCorrection(memoryId, correction = {}, memoryStore = {}) {
 }
 
 export function buildContextForFeature(featureId, memoryStore = {}, options = {}) {
+  if (featureId === "adaptive-article-overview") {
+    return {
+      feature_id: featureId,
+      reading_memory: buildReadingMemorySummary(memoryStore),
+      context: retrieveContext(options.query || "reading preferences", memoryStore, options),
+      schema_packets: retrieveSchemaPackets({ category: "reading" }, memoryStore),
+    }
+  }
   return {
     feature_id: normalize(featureId),
     context: retrieveContext(options.query || featureId, memoryStore, options),
     schema_packets: retrieveSchemaPackets({}, memoryStore),
+  }
+}
+
+function summarizeReadingPreferences(attributes = {}) {
+  const parts = []
+  if (attributes.preferred_topics?.length) parts.push(`preferred topics: ${attributes.preferred_topics.join(", ")}`)
+  if (attributes.skipped_topics?.length) parts.push(`skipped topics: ${attributes.skipped_topics.join(", ")}`)
+  if (attributes.preferred_summary_style && attributes.preferred_summary_style !== "unknown") parts.push(`summary style: ${attributes.preferred_summary_style}`)
+  if (attributes.preferred_article_length && attributes.preferred_article_length !== "unknown") parts.push(`article length: ${attributes.preferred_article_length}`)
+  return parts.length ? parts.join("; ") : "Reading preference memory from approved article activity."
+}
+
+function buildReadingMemorySummary(memoryStore = {}) {
+  const memories = (memoryStore.memories || []).filter((memory) => memory.type === "reading_preference_memory")
+  const attributes = Object.assign({}, ...memories.map((memory) => memory.attributes || {}))
+  return {
+    average_read_time_seconds: Number(attributes.average_read_time_seconds || 0),
+    average_scroll_depth: Number(attributes.average_scroll_depth || 0),
+    finish_rate: Number(attributes.finish_rate || 0),
+    preferred_topics: unique(attributes.preferred_topics || []),
+    skipped_topics: unique(attributes.skipped_topics || []),
+    preferred_article_length: normalize(attributes.preferred_article_length || "unknown"),
+    preferred_summary_style: normalize(attributes.preferred_summary_style || "unknown"),
+    repeat_topics: unique(attributes.repeat_topics || [])
   }
 }
 

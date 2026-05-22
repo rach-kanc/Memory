@@ -38,3 +38,36 @@ test("buildContextForFeature returns schema and context", () => {
   const context = buildContextForFeature("research-map", result.memoryStore)
   assert.equal(context.feature_id, "research-map")
 })
+
+test("reading schema packet becomes reading preference memory", () => {
+  const result = rememberSchemaPacket({
+    packet_id: "schema_reading_preferences_1",
+    category: "reading",
+    schema_type: "reading_preferences",
+    confidence: 0.82,
+    attributes: {
+      preferred_topics: ["ai policy"],
+      skipped_topics: ["celebrity"],
+      average_scroll_depth: 88,
+      finish_rate: 0.82,
+      preferred_article_length: "long",
+      preferred_summary_style: "deep_dive",
+      repeat_topics: ["ai policy"]
+    },
+    sources: [{ id: "evt_1", title: "AI policy guide" }]
+  })
+  assert.equal(result.memory.type, "reading_preference_memory")
+  const context = buildContextForFeature("adaptive-article-overview", result.memoryStore)
+  assert.equal(context.reading_memory.preferred_summary_style, "deep_dive")
+  assert.equal(context.reading_memory.preferred_topics[0], "ai policy")
+})
+
+test("adaptive article overview output is stored", () => {
+  const result = rememberFeatureOutput({
+    feature_id: "adaptive-article-overview",
+    output: { summary_style: "key_points", overview: "Key points: A" },
+    confidence: 0.7
+  })
+  assert.equal(result.memory.type, "feature_output_memory")
+  assert.equal(result.memory.feature_id, "adaptive-article-overview")
+})

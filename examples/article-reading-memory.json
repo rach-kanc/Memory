@@ -1,0 +1,25 @@
+{
+  "schema_version": "memact.memory.v0",
+  "memories": [
+    {
+      "id": "memory:reading:schema_reading_preferences_1",
+      "type": "reading_preference_memory",
+      "label": "Reading preferences",
+      "summary": "preferred topics: ai policy; skipped topics: celebrity; summary style: deep_dive; article length: long",
+      "confidence": 0.82,
+      "schema_refs": ["reading_preferences"],
+      "feature_refs": ["adaptive-article-overview"],
+      "attributes": {
+        "average_read_time_seconds": 260,
+        "average_scroll_depth": 88,
+        "finish_rate": 0.82,
+        "preferred_topics": ["ai policy"],
+        "skipped_topics": ["celebrity"],
+        "preferred_article_length": "long",
+        "preferred_summary_style": "deep_dive",
+        "repeat_topics": ["ai policy"]
+      },
+      "state": "active"
+    }
+  ]
+}
