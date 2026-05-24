@@ -2,7 +2,7 @@
   "name": "memact-memory",
   "private": true,
   "version": "0.0.0",
-  "description": "Durable context store for retained evidence, schema packets, feature outputs, and permissioned personalization state.",
+  "description": "Local-first memory store with CRUD and RAG-style retrieval for accepted Memact Wiki context.",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "main": "./src/engine.mjs",

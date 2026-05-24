@@ -1,10 +1,18 @@
 # Memact Memory Notes
 
-Memory stores useful user-context state.
+Memact means act-on-memory.
 
-It stores schema packets, feature outputs, semantic evidence, source links,
-corrections, and forgetting actions. Storage is local-first today, with room for
-user-owned personal cloud storage later.
+Memory stores accepted user context after Wiki review. It keeps the records,
+source trails, edits, corrections, deleted/forgotten state, and app-safe
+summaries needed for later retrieval.
 
-Memory does not capture activity, infer meaning, form schemas, run features, or
-check app access.
+The Memory engine supports CRUD and RAG-style retrieval:
+
+- create, read, update, and delete memory records
+- retrieve memories for a query
+- build compact RAG context from allowed memories
+- keep raw graph-style access behind a separate permission boundary
+
+Memory does not check app access, shape category schemas, or decide what the
+user accepts. Access, Schema, and Wiki handle those steps before Memory stores
+what survives.

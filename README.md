@@ -1,44 +1,55 @@
 # Memact Memory
 
-Memory stores useful user memory.
+Memact means act-on-memory.
 
-It stores schema packets, feature outputs, semantic evidence, source links,
-corrections, and forgetting actions. Storage is local-first today, with a path
-for user-owned personal cloud storage later.
+Memory stores the accepted user context that survives after Wiki review. Apps
+can propose context, Access checks permission, Schema shapes it, Wiki lets the
+user accept/edit/reject/delete it, and Memory stores what remains useful.
+
+Storage is local-first today, with a path for user-owned personal cloud storage
+later.
 
 ## Owns
 
 - Durable memory records.
 - Schema memories.
-- Feature output memories.
-- Inference memories.
+- Accepted Wiki entries.
+- App-safe summaries.
 - Corrections and forgetting records.
-- Retrieval for app/user features.
+- Retrieval for apps and user views.
+- CRUD operations for memory records.
+- RAG-style retrieval context for allowed app reads.
 
 ## Does Not Own
 
 - Capture.
-- Semantic inference.
 - Schema formation.
-- Playground feature implementation.
+- Wiki moderation UI.
 - API key verification.
+- Full-Wiki access for apps.
 
 ## Current Code
 
 The v0 engine supports:
 
+- `createMemory(memoryInput, memoryStore)`
+- `readMemory(memoryId, memoryStore)`
+- `updateMemory(memoryId, patch, memoryStore)`
+- `deleteMemory(memoryId, memoryStore)`
+- `retrieveMemories(query, memoryStore, options)`
+- `buildRagContext(query, memoryStore, options)`
 - `rememberSchemaPacket(packet)`
-- `rememberFeatureOutput(output)`
-- `rememberInferenceRecord(record)`
-- `retrieveContext(query, options)`
+- `rememberFeatureOutput(output)` for compatibility with older feature output records
+- `retrieveContext(query, memoryStore, options)`
 - `retrieveSchemaPackets(filter)`
 - `buildContextForFeature(featureId, options)`
 - `createCorrection(memoryId, correction)`
 - `forgetMemory(memoryId, reason)`
 
-Summary retrieval returns compact records by default. Raw graph-style retrieval
-is a separate permission boundary and should not be treated as the default app
-response.
+Summary retrieval returns compact records by default. RAG context is built from
+allowed memories, relation trails, and supporting snippets. Raw graph-style
+retrieval is a separate permission boundary and should not be treated as the
+default app response.
 
 ## Development
 
