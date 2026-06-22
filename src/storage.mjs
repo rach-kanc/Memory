@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { restoreMemoryFromBackup, serializeMemoryBackup } from "./backup-restore.mjs";
 import {
   createMemory,
   deleteMemory,
@@ -28,7 +29,7 @@ export function createMemoryRepository(adapter) {
 
   return {
     async load() {
-      return (await adapter.load()) || EMPTY_STORE;
+      return restoreMemoryFromBackup((await adapter.load()) || EMPTY_STORE);
     },
     async save(memoryStore) {
       await adapter.save(memoryStore || EMPTY_STORE);
@@ -92,16 +93,18 @@ export function createJsonFileMemoryAdapter(filePath) {
     kind: "json_file",
     async load() {
       try {
-        return JSON.parse(await readFile(path, "utf8"));
+        const raw = JSON.parse(await readFile(path, "utf8"));
+        return restoreMemoryFromBackup(raw);
       } catch (error) {
         if (error?.code === "ENOENT") {
-          return EMPTY_STORE;
+          return restoreMemoryFromBackup(EMPTY_STORE);
         }
         throw error;
       }
     },
     async save(memoryStore) {
-      await writeFile(path, `${JSON.stringify(memoryStore || EMPTY_STORE, null, 2)}\n`, "utf8");
+      const backup = serializeMemoryBackup(memoryStore || EMPTY_STORE);
+      await writeFile(path, `${JSON.stringify(backup, null, 2)}\n`, "utf8");
     },
   };
 }
@@ -118,7 +121,7 @@ export function createRemoteMemoryAdapter({ load, save, provider = "remote", des
       return (await load()) || EMPTY_STORE;
     },
     async save(memoryStore) {
-      await save(memoryStore || EMPTY_STORE);
+      await save(serializeMemoryBackup(memoryStore || EMPTY_STORE));
     },
   };
 }

@@ -1,4 +1,4 @@
-const MEMORY_SCHEMA_VERSION = "memact.memory.v0";
+export const MEMORY_SCHEMA_VERSION = "memact.memory.v0";
 const DEFAULT_RETENTION_THRESHOLD = 0.34;
 const DEFAULT_DECAY_PER_DAY = 0.006;
 const MAX_SOURCES = 8;
@@ -516,13 +516,13 @@ function emptyMemoryStore(previous = {}) {
   });
 }
 
-function refreshMemoryStore(memoryStore = {}) {
+export function reindexMemoryStore(memoryStore = {}) {
   const memories = Array.isArray(memoryStore.memories) ? memoryStore.memories : [];
   const relations = (Array.isArray(memoryStore.relations) ? memoryStore.relations : []).map(normalizeRelationInput);
   const graph = buildMemoryGraph(memories, relations);
   return {
     schema_version: memoryStore.schema_version || MEMORY_SCHEMA_VERSION,
-    generated_at: nowIso(),
+    generated_at: memoryStore.generated_at || nowIso(),
     source: memoryStore.source || {},
     thresholds: memoryStore.thresholds || {},
     memories,
@@ -533,6 +533,7 @@ function refreshMemoryStore(memoryStore = {}) {
     cognitive_schema_memories: memories.filter(isSchemaMemory),
     graph,
     actions: Array.isArray(memoryStore.actions) ? memoryStore.actions : [],
+    graph_snapshots: Array.isArray(memoryStore.graph_snapshots) ? memoryStore.graph_snapshots : [],
     stats: {
       memoryCount: memories.length,
       activityMemoryCount: memories.filter((memory) => memory.type === "activity_memory").length,
@@ -541,6 +542,10 @@ function refreshMemoryStore(memoryStore = {}) {
       sourceCount: graph.nodes.filter((node) => node.type === "source_memory").length,
     },
   };
+}
+
+function refreshMemoryStore(memoryStore = {}) {
+  return reindexMemoryStore({ ...memoryStore, generated_at: nowIso() });
 }
 
 function normalizeMemoryInput(input = {}) {

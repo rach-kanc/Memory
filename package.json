@@ -18,7 +18,8 @@
     "./negative-evidence": "./src/negative-evidence.mjs",
     "./scoring": "./src/scoring.mjs",
     "./source-metadata": "./src/source-metadata.mjs",
-    "./storage": "./src/storage.mjs",
+    "./backup-restore": "./src/backup-restore.mjs",
+    "./memory-schemas": "./src/memory-schemas.mjs",
     "./semantic-matching": "./src/semantic-matching.mjs",
     "./task-context-packet": "./src/task-context-packet.mjs",
     "./cap-packet": "./src/cap-packet.mjs",
@@ -50,6 +51,7 @@
   "scripts": {
     "benchmarks": "node ./scripts/benchmarks.mjs",
     "check": "node ./scripts/check.mjs",
+    "test": "node --test test/*.test.mjs",
     "memory": "node ./src/cli.mjs",
     "sample": "node ./src/cli.mjs --inference examples/sample-inference-output.json --schema examples/sample-schema-output.json --format report",
     "sample:json": "node ./src/cli.mjs --inference examples/sample-inference-output.json --schema examples/sample-schema-output.json --format json",
