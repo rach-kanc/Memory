@@ -57,5 +57,8 @@
     "sample:json": "node ./src/cli.mjs --inference examples/sample-inference-output.json --schema examples/sample-schema-output.json --format json",
     "sample:graph": "node ./src/cli.mjs --inference examples/sample-inference-output.json --schema examples/sample-schema-output.json --format graph",
     "sample:mermaid": "node ./src/cli.mjs --inference examples/sample-inference-output.json --schema examples/sample-schema-output.json --format mermaid"
+  },
+  "dependencies": {
+    "pg": "^8.22.0"
   }
 }
