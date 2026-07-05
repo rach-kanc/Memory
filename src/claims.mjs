@@ -158,6 +158,7 @@ export function verifyAndProcessClaim(claimResult, sourceApp) {
  */
 export function clearQuarantineRegistry() {
   QUARANTINE_REGISTRY.clear();
+}
 
 // Allowed action origins for trace logging
 export const RECTIFICATION_ORIGINS = Object.freeze({
@@ -204,9 +205,11 @@ export function rectifyClaimWithTrace(existingClaim = {}, updates = {}, origin) 
       ]
     }
   };
+}
 
 // In-memory inverted index registry mapping category keys to arrays of matching claims
 const CATEGORY_INVERTED_INDEX = new Map();
+const CLAIM_CATEGORY_LOOKUP = new Map();
 
 /**
  * Parses and indexes an array of claims into the high-performance inverted index registry.
@@ -215,6 +218,7 @@ const CATEGORY_INVERTED_INDEX = new Map();
 export function buildCategoryIndex(claims = []) {
   // Clear any existing index data to prevent stale lookups across re-indexes
   CATEGORY_INVERTED_INDEX.clear();
+  CLAIM_CATEGORY_LOOKUP.clear();
 
   if (!Array.isArray(claims)) return;
 
@@ -232,6 +236,7 @@ export function buildCategoryIndex(claims = []) {
     }
 
     CATEGORY_INVERTED_INDEX.get(normalizedCategory).push(claim);
+    CLAIM_CATEGORY_LOOKUP.set(claim.claim_id, normalizedCategory);
   });
 }
 
@@ -251,4 +256,58 @@ export function getClaimsByCategory(category) {
  */
 export function clearCategoryIndex() {
   CATEGORY_INVERTED_INDEX.clear();
+  CLAIM_CATEGORY_LOOKUP.clear();
+}
+/**
+ * Adds a new claim to the index, or moves it if its category changed.
+ * This is the "incremental" version of buildCategoryIndex — it updates
+ * just one claim instead of rebuilding the whole index from scratch.
+ * @param {Object} claim - The claim to add or update in the index
+ */
+export function upsertCategoryIndex(claim) {
+  if (!claim) return;
+
+  const claimId = claim.claim_id;
+
+  // If this claim was already indexed somewhere, remove it from its old spot first
+  const previousCategory = CLAIM_CATEGORY_LOOKUP.get(claimId);
+  if (previousCategory) {
+    const bucket = CATEGORY_INVERTED_INDEX.get(previousCategory);
+    if (bucket) {
+      const idx = bucket.findIndex((c) => c.claim_id === claimId);
+      if (idx !== -1) bucket.splice(idx, 1);
+    }
+  }
+
+  const rawCategory = claim.category || claim.metadata?.category;
+
+  // No category on this claim: just make sure it's not tracked anywhere, then stop
+  if (!rawCategory) {
+    CLAIM_CATEGORY_LOOKUP.delete(claimId);
+    return;
+  }
+
+  const normalizedCategory = String(rawCategory).toLowerCase().trim();
+
+  if (!CATEGORY_INVERTED_INDEX.has(normalizedCategory)) {
+    CATEGORY_INVERTED_INDEX.set(normalizedCategory, []);
+  }
+  CATEGORY_INVERTED_INDEX.get(normalizedCategory).push(claim);
+  CLAIM_CATEGORY_LOOKUP.set(claimId, normalizedCategory);
+}
+
+/**
+ * Removes a claim from the index entirely (e.g. it was deleted or forgotten).
+ * @param {string} claimId - The claim_id to remove from the index
+ */
+export function removeFromCategoryIndex(claimId) {
+  const category = CLAIM_CATEGORY_LOOKUP.get(claimId);
+  if (!category) return;
+
+  const bucket = CATEGORY_INVERTED_INDEX.get(category);
+  if (bucket) {
+    const idx = bucket.findIndex((c) => c.claim_id === claimId);
+    if (idx !== -1) bucket.splice(idx, 1);
+  }
+  CLAIM_CATEGORY_LOOKUP.delete(claimId);
 }
