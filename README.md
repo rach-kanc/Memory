@@ -18,7 +18,7 @@ The encryption key is read from these environment variables:
 - `MEMACT_MEMORY_ENCRYPTION_KEY`: 32-byte key as base64 or 64-char hex (required).
 - `MEMACT_MEMORY_ENCRYPTION_KEY_ID`: key identifier recorded in the envelope (optional, defaults to `primary`).
 
-```bash
+```sh
 # Back up a memory store to an encrypted file
 node ./scripts/memory-backup.mjs backup --store memory.json --out backup.json
 
@@ -34,7 +34,7 @@ These operations are also available programmatically through `backup-restore.mjs
 ## Development
 
 To install and run tests:
-```powershell
+```sh
 npm install
 npm test
 ```
