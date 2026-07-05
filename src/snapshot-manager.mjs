@@ -22,9 +22,9 @@ export class SnapshotManager extends EventEmitter {
     
     // Perform a shallow clone of the active memory store states for a lock-free read reference
     const structuralState = {
-      memories: Array.isArray(this.store.memories) ? [...this.store.memories] : [],
-      relations: Array.isArray(this.store.relations) ? [...this.store.relations] : [],
-      actions: Array.isArray(this.store.actions) ? [...this.store.actions] : [],
+      memories: Array.isArray(this.store.memories) ? this.store.memories.map(m => typeof m === "object" && m !== null ? { ...m } : m) : [],
+      relations: Array.isArray(this.store.relations) ? this.store.relations.map(r => typeof r === "object" && r !== null ? { ...r } : r) : [],
+      actions: Array.isArray(this.store.actions) ? this.store.actions.map(a => typeof a === "object" && a !== null ? { ...a } : a) : [],
       timestamp: Date.now()
     };
 

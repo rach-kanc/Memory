@@ -124,6 +124,92 @@ function selectCapMatchesOrThrowQuarantined(requested, approved, matchesByReques
   return { allowedByField, missing_context }
 }
 
+export function resolveContradictoryRecords(records = []) {
+  const grouped = {};
+  for (const r of records) {
+    const path = r.field_path || r.path || "";
+    if (!path) continue;
+    grouped[path] ||= [];
+    grouped[path].push(r);
+  }
+
+  const resolved = [];
+
+  for (const [field_path, fieldRecords] of Object.entries(grouped)) {
+    if (fieldRecords.length === 1) {
+      resolved.push(fieldRecords[0]);
+      continue;
+    }
+
+    const valueGroups = {};
+    for (const r of fieldRecords) {
+      const valStr = typeof r.value === "object" && r.value !== null ? JSON.stringify(r.value) : String(r.value);
+      valueGroups[valStr] ||= { value: r.value, records: [] };
+      valueGroups[valStr].records.push(r);
+    }
+
+    const rankedGroups = Object.values(valueGroups).map(g => {
+      let aggregateScore = 0;
+      let maxConfidence = 0;
+      let latestCreatedAt = 0;
+      let latestRecord = null;
+
+      for (const r of g.records) {
+        let typeMult = 0.5;
+        const type = String(r.entry_type || "").toLowerCase();
+        if (type === "declared_fact") typeMult = 1.0;
+        else if (type === "user_verified_fact") typeMult = 0.9;
+        else if (type === "app_observation") typeMult = 0.7;
+        else if (type === "app_assumption") typeMult = 0.4;
+
+        const confidence = r.confidence !== undefined ? Number(r.confidence) : 0.5;
+        if (confidence > maxConfidence) maxConfidence = confidence;
+
+        const createdTime = Date.parse(r.created_at || new Date());
+        if (createdTime > latestCreatedAt) {
+          latestCreatedAt = createdTime;
+          latestRecord = r;
+        }
+        const days = Math.max(0, (Date.now() - createdTime) / (1000 * 60 * 60 * 24));
+        const decayRate = ["fitness", "location", "travel"].some(cat => String(r.category || "").includes(cat)) ? 0.05 : 0.01;
+        const decayFactor = Math.max(0.1, 1.0 - days * decayRate);
+
+        aggregateScore += typeMult * confidence * decayFactor;
+      }
+
+      return {
+        value: g.value,
+        records: g.records,
+        score: aggregateScore,
+        maxConfidence,
+        latestCreatedAt,
+        latestRecord
+      };
+    }).sort((left, right) => right.score - left.score);
+
+    const winner = rankedGroups[0];
+    if (winner && winner.latestRecord) {
+      const latest = winner.latestRecord;
+      const days = Math.max(0, (Date.now() - winner.latestCreatedAt) / (1000 * 60 * 60 * 24));
+      
+      let decay_status = "current";
+      if (days > 30) decay_status = "expired";
+      else if (days > 10) decay_status = "stale";
+      else if (days > 3) decay_status = "aging";
+
+      resolved.push({
+        ...latest,
+        value: winner.value,
+        confidence: Number(winner.maxConfidence.toFixed(3)),
+        decay_status,
+        evidence_count: winner.records.length,
+        entry_type: latest.entry_type || "app_observation"
+      });
+    }
+  }
+
+  return resolved;
+}
 
 export function buildCapPacket({
   cap_request,
@@ -153,18 +239,20 @@ export function buildCapPacket({
   }
 
   const approved = retrieveApprovedContextFields(approved_memory_records, cap_request, { allowedSensitiveFieldPaths })
-  const matchesByRequest = matchRequestedFields(requested.map(itemText), approved, { threshold: 0.12 })
-  const { allowedByField, missing_context } = selectCapMatchesOrThrowQuarantined(requested, approved, matchesByRequest)
+  const resolvedApproved = resolveContradictoryRecords(approved)
+  const matchesByRequest = matchRequestedFields(requested.map(itemText), resolvedApproved, { threshold: 0.12 })
+  const { allowedByField, missing_context } = selectCapMatchesOrThrowQuarantined(requested, resolvedApproved, matchesByRequest)
 
   const allowed_context = [...allowedByField.values()].map(({ memory, score }) => ({
-
-
     field_path: memory.field_path,
     value: memoryValue(memory),
     category: memory.category || "general",
     sensitivity: memory.sensitivity || "normal",
     source: memorySource(memory),
-    confidence: memory.confidence !== undefined ? Number(memory.confidence) : Number(score.toFixed(3))
+    confidence: memory.confidence !== undefined ? Number(memory.confidence) : Number(score.toFixed(3)),
+    decay_status: memory.decay_status || "current",
+    evidence_count: memory.evidence_count !== undefined ? memory.evidence_count : 1,
+    entry_type: memory.entry_type || "app_observation"
   }))
 
   return {

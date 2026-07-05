@@ -1562,6 +1562,7 @@ export function detectSessionAnomaly(playbackEvent = {}) {
  */
 export function clearMediaBaseline() {
   USER_MEDIA_BASELINE.clear();
+}
 
 /**
  * Automatically evaluates memory records and filters out any temporary 
@@ -1586,6 +1587,7 @@ export function purgeExpiredRecords(records = []) {
     // Keep records that don't have an expiration attribute
     return true;
   });
+}
 
 
 // Append-only commit log storage array

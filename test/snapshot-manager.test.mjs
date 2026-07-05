@@ -1,4 +1,5 @@
 import assert from 'assert';
+import { describe, it, beforeEach } from 'node:test';
 import { SnapshotManager } from '../src/snapshot-manager.mjs';
 
 describe('SnapshotManager Concurrency & Race-Condition Tests', () => {
