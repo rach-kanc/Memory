@@ -1,28 +1,51 @@
-# Memact Memory Notes
+# Memact — Memory
 
-Memact means act-on-memory.
+Memact is open identity infrastructure.
 
-Memory stores accepted user memory after Wiki review. It keeps the records,
-source trails, edits, corrections, deleted/forgotten state, and app-safe
-summaries needed for later retrieval.
+Users own an identity address. Apps contribute observations. The identity provider stores what users have approved.
 
-The Memory engine supports CRUD and RAG-style retrieval:
+## What Memory Does
 
-- create, read, update, and delete memory records
-- retrieve memories for a query
-- build compact RAG input from allowed memories
-- keep raw graph-style access behind a separate permission boundary
-- build task context packets for memory-blind local workers
+Memory is the **identity data store** — the durable, intelligent storage layer for user-approved identity context.
 
-Memory does not check app access, shape category input, or decide what the
-user accepts. Access, Context, and Wiki handle those steps before Memory stores
-what survives.
+Memory stores:
+- **User-approved context** — observations that have passed the user's review
+- **Evidence chains** — which apps contributed what, with what confidence
+- **Temporal state** — how fresh or stale each piece of context is
+- **Approval history** — full audit trail of what users accepted, edited, or rejected
 
-## Worker boundary
+## Intelligence in Memory
 
-Memact workers do not receive the full Memory store.
+Memory implements the context intelligence that the protocol exposes through CAP responses:
 
-For tasks like onboarding prefill or field mapping, Memory builds a small
-`memact.task_context_packet.v0` packet. The packet includes only approved field
-fragments for one app and one connection. The current worker is local and
-deterministic; future model workers should keep the same packet boundary.
+| Intelligence Feature | What It Means |
+|---|---|
+| **Confidence scoring** | Evidence-weighted confidence (0.0–1.0) for each context entry |
+| **Temporal decay** | Context freshness status: `current`, `aging`, `stale`, `expired` |
+| **Evidence links** | Which observations support each context entry |
+| **Negative evidence** | How contradicting observations reduce confidence |
+| **Competing origins** | How conflicts between app contributions are resolved |
+
+These are exposed through CAP responses as `confidence`, `decay_status`, and `evidence_count` fields.
+
+## User Ownership
+
+Memory never promotes unapproved context to approved status. Every observation from an app is pending until the user explicitly approves, partially approves, or edits it in Notebook.
+
+Approval states:
+
+| State | Meaning |
+|---|---|
+| `pending` | Contributed by an app, awaiting user review |
+| `approved` | User reviewed and accepted |
+| `user_verified` | User confirmed or edited the value |
+| `rejected` | User reviewed and declined (kept for audit trail) |
+| `forgotten` | User requested removal (GDPR right to erasure) |
+
+## Provider Portability
+
+User-approved context can be exported in a portable format, enabling users to migrate from one identity provider to another without losing their approved context history.
+
+## License
+
+Apache 2.0.
