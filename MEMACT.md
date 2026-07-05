@@ -1,51 +1,37 @@
-# Memact — Memory
+# Memact Memory
 
-Memact is open identity infrastructure.
-
-Users own an identity address. Apps contribute observations. The identity provider stores what users have approved.
+Memory is the storage layer that keeps the context you have approved.
 
 ## What Memory Does
 
-Memory is the **identity data store** — the durable, intelligent storage layer for user-approved identity context.
+Memory acts as the database for your provider. It stores:
+- Your approved context (the facts you accept or edit).
+- The evidence chains showing which apps suggested what data and when.
+- The age and decay status of each fact.
+- Your review history (what you accepted, modified, or rejected).
 
-Memory stores:
-- **User-approved context** — observations that have passed the user's review
-- **Evidence chains** — which apps contributed what, with what confidence
-- **Temporal state** — how fresh or stale each piece of context is
-- **Approval history** — full audit trail of what users accepted, edited, or rejected
+## Context Intelligence
 
-## Intelligence in Memory
+When apps request your context through CAP, Memory helps resolve conflicting information:
+- **Evidence Weighting**: Calculates an overall confidence score (0.0 to 1.0) using source trust levels and record age.
+- **Freshness**: Tracks when data is current, aging, stale, or expired.
+- **Contradiction Resolution**: Compares contradicting app suggestions, ranks them based on evidence, and returns the strongest active value.
 
-Memory implements the context intelligence that the protocol exposes through CAP responses:
+## Your Controls
 
-| Intelligence Feature | What It Means |
-|---|---|
-| **Confidence scoring** | Evidence-weighted confidence (0.0–1.0) for each context entry |
-| **Temporal decay** | Context freshness status: `current`, `aging`, `stale`, `expired` |
-| **Evidence links** | Which observations support each context entry |
-| **Negative evidence** | How contradicting observations reduce confidence |
-| **Competing origins** | How conflicts between app contributions are resolved |
+Memory never automatically accepts app suggestions. Everything stays pending until you decide what to do in Notebook.
 
-These are exposed through CAP responses as `confidence`, `decay_status`, and `evidence_count` fields.
+You can set records to:
+- `pending`: Suggestion from an app waiting for your review.
+- `approved`: Accepted by you.
+- `user_verified`: Confirmed or edited by you.
+- `rejected`: Declined (retained only for logs).
+- `forgotten`: Deleted at your request.
 
-## User Ownership
+## Portability
 
-Memory never promotes unapproved context to approved status. Every observation from an app is pending until the user explicitly approves, partially approves, or edits it in Notebook.
-
-Approval states:
-
-| State | Meaning |
-|---|---|
-| `pending` | Contributed by an app, awaiting user review |
-| `approved` | User reviewed and accepted |
-| `user_verified` | User confirmed or edited the value |
-| `rejected` | User reviewed and declined (kept for audit trail) |
-| `forgotten` | User requested removal (GDPR right to erasure) |
-
-## Provider Portability
-
-User-approved context can be exported in a portable format, enabling users to migrate from one identity provider to another without losing their approved context history.
+You can export your approved context at any time, allowing you to move to a different provider without losing your history.
 
 ## License
 
-Apache 2.0.
+Apache 2.0. Memory is open and free.

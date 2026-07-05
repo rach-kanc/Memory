@@ -1,35 +1,22 @@
 # Memact Memory
 
-The secure storage and search index of Memact. It houses all approved statements for a user's profile.
+Memory is the storage layer that keeps the context you have approved.
 
-## Core Responsibilities
-- **Secure Persistence**: Holds approved statements securely.
-- **Index & Retrieval**: Fast indexing to retrieve only relevant approved statements when queried by authorized apps.
+## What Memory Does
 
-## Database Persistence (PostgreSQL)
-For production environments, Memact Memory provides a PostgreSQL adapter aligned with the V1 Supabase architecture.
+Memory acts as the database for your provider. It stores:
+- Your approved context (the facts you accept or edit).
+- The evidence chains showing which apps suggested what data and when.
+- The age and decay status of each fact.
+- Your review history (what you accepted, modified, or rejected).
 
-### Setup
-1. Run the database migration script located at `database/migration_v1.sql` to create the required `memact_memory_entries` and `memact_app_permissions` tables.
-2. Initialize the adapter in your server code:
-```javascript
-import pg from 'pg';
-import { createMemoryRepository } from 'memact-memory/storage';
-import { createPostgresMemoryAdapter } from 'memact-memory/adapters/postgresql';
+## Local Backup and Restore
 
-const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+You can export approved memory entries to an AES-256-GCM encrypted JSON backup and restore them later. Only approved states (`active`, `accepted`, `approved`, `edited`, `user_verified`) are included. Pending, deleted, or forgotten entries are skipped.
 
-const memoryStore = createMemoryRepository(
-  createPostgresMemoryAdapter({ pool, userId: 'user-uuid-here' })
-);
-```
-
-## Local Backup & Restore
-Export approved memory entries to an AES-256-GCM encrypted JSON backup, and restore them later. Only approved states (`active`, `accepted`, `approved`, `edited`, `user_verified`) are included; forgotten, superseded, deleted, and pending entries are skipped. Relations and actions that reference excluded memories are pruned so backups stay referentially consistent.
-
-The encryption key is read from the environment:
-- `MEMACT_MEMORY_ENCRYPTION_KEY` — 32-byte key as base64 or 64-char hex (required)
-- `MEMACT_MEMORY_ENCRYPTION_KEY_ID` — key identifier recorded in the envelope (optional, defaults to `primary`)
+The encryption key is read from these environment variables:
+- `MEMACT_MEMORY_ENCRYPTION_KEY`: 32-byte key as base64 or 64-char hex (required).
+- `MEMACT_MEMORY_ENCRYPTION_KEY_ID`: key identifier recorded in the envelope (optional, defaults to `primary`).
 
 ```bash
 # Back up a memory store to an encrypted file
@@ -42,4 +29,16 @@ node ./scripts/memory-backup.mjs backup --store memory.json --out backup.json --
 node ./scripts/memory-backup.mjs restore --in backup.json --out restored.json
 ```
 
-The same operations are available programmatically via `memact-memory/backup-restore` (`encryptMemoryBackup`, `decryptMemoryBackup`, `serializeApprovedMemoryBackup`).
+These operations are also available programmatically through `backup-restore.mjs`.
+
+## Development
+
+To install and run tests:
+```powershell
+npm install
+npm test
+```
+
+## License
+
+Memory is open source under the Apache 2.0 license.
