@@ -1,3 +1,4 @@
+import { applyTrustToScore } from "./app-trust-scoring.mjs";
 function normalize(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
 }
@@ -75,11 +76,13 @@ export function sourceReliabilityScore(source = {}) {
   return Number(score.toFixed(4));
 }
 
-export function enrichSourceMetadata(source = {}) {
+export function enrichSourceMetadata(source = {}, { appId } = {}) {
   const source_type = inferSourceType(source);
+  const rawScore = sourceReliabilityScore({ ...source, source_type });
+  const source_strength_score = appId ? applyTrustToScore(rawScore, appId) : rawScore;
   return {
     ...source,
     source_type,
-    source_strength_score: sourceReliabilityScore({ ...source, source_type }),
+    source_strength_score,
   };
 }

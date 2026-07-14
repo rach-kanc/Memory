@@ -41,6 +41,16 @@ function memorySource(memory) {
   )
 }
 
+function isQuarantinedMemory(memory = {}) {
+  const statusRaw = memory.status ?? memory.state ?? memory.quarantine_status ?? ""
+  const status = normalize(statusRaw).toLowerCase()
+  return status === "quarantined"
+}
+
+
+
+
+
 function normalizeRequestedItem(item = {}) {
   if (typeof item === "string") {
     return { description: item, required: false }
@@ -59,6 +69,8 @@ function itemText(item) {
 
 export function retrieveApprovedContextFields(memoryRecords = [], capRequest = {}, options = {}) {
   const requestedCategories = capRequest.requested_categories || options.categories || []
+  // Note: strict quarantine boundary is enforced in buildCapPacket via selected-match checks.
+  // We intentionally do not throw here to keep this function focused on approval filtering.
   const approved = filterApprovedTaskMemory(memoryRecords, {
     target_app_id: capRequest.app_id,
     categories: requestedCategories,
@@ -66,6 +78,137 @@ export function retrieveApprovedContextFields(memoryRecords = [], capRequest = {
     allowedSensitiveFieldPaths: options.allowedSensitiveFieldPaths || []
   })
   return approved
+}
+
+
+
+function selectCapMatchesOrThrowQuarantined(requested, approved, matchesByRequest) {
+  // Quarantined boundary must be enforced against both:
+  // - the selected match (best.memory)
+  // - and the available approved pool (approved)
+  // to ensure we never silently drop/alter quarantined records.
+  if (Array.isArray(approved)) {
+    for (const mem of approved) {
+      if (isQuarantinedMemory(mem)) {
+        const fieldPath = mem.field_path || mem.path || "<unknown_field>"
+        throw new TypeError(`Quarantined memory selected for CAP packet: field_path=${fieldPath}`)
+      }
+    }
+  }
+
+  const allowedByField = new Map()
+  const missing_context = []
+
+  requested.forEach((item, index) => {
+
+    const matches = matchesByRequest[index]?.matches || []
+    const best = matches[0]
+    if (!best) {
+      missing_context.push({
+        description: item.description,
+        field_hint: item.field_hint || undefined,
+        category_hint: item.category_hint || undefined,
+        required: item.required,
+        reason: "No approved matching memory."
+      })
+      return
+    }
+    const memory = best.memory
+    if (isQuarantinedMemory(memory)) {
+      const fieldPath = memory.field_path || memory.path || "<unknown_field>"
+      throw new TypeError(`Quarantined memory selected for CAP packet: field_path=${fieldPath}`)
+    }
+    if (!allowedByField.has(memory.field_path)) allowedByField.set(memory.field_path, { memory, score: best.score })
+  })
+
+  return { allowedByField, missing_context }
+}
+
+export function resolveContradictoryRecords(records = []) {
+  const grouped = {};
+  for (const r of records) {
+    const path = r.field_path || r.path || "";
+    if (!path) continue;
+    grouped[path] ||= [];
+    grouped[path].push(r);
+  }
+
+  const resolved = [];
+
+  for (const [field_path, fieldRecords] of Object.entries(grouped)) {
+    if (fieldRecords.length === 1) {
+      resolved.push(fieldRecords[0]);
+      continue;
+    }
+
+    const valueGroups = {};
+    for (const r of fieldRecords) {
+      const valStr = typeof r.value === "object" && r.value !== null ? JSON.stringify(r.value) : String(r.value);
+      valueGroups[valStr] ||= { value: r.value, records: [] };
+      valueGroups[valStr].records.push(r);
+    }
+
+    const rankedGroups = Object.values(valueGroups).map(g => {
+      let aggregateScore = 0;
+      let maxConfidence = 0;
+      let latestCreatedAt = 0;
+      let latestRecord = null;
+
+      for (const r of g.records) {
+        let typeMult = 0.5;
+        const type = String(r.entry_type || "").toLowerCase();
+        if (type === "declared_fact") typeMult = 1.0;
+        else if (type === "user_verified_fact") typeMult = 0.9;
+        else if (type === "app_observation") typeMult = 0.7;
+        else if (type === "app_assumption") typeMult = 0.4;
+
+        const confidence = r.confidence !== undefined ? Number(r.confidence) : 0.5;
+        if (confidence > maxConfidence) maxConfidence = confidence;
+
+        const createdTime = Date.parse(r.created_at || new Date());
+        if (createdTime > latestCreatedAt) {
+          latestCreatedAt = createdTime;
+          latestRecord = r;
+        }
+        const days = Math.max(0, (Date.now() - createdTime) / (1000 * 60 * 60 * 24));
+        const decayRate = ["fitness", "location", "travel"].some(cat => String(r.category || "").includes(cat)) ? 0.05 : 0.01;
+        const decayFactor = Math.max(0.1, 1.0 - days * decayRate);
+
+        aggregateScore += typeMult * confidence * decayFactor;
+      }
+
+      return {
+        value: g.value,
+        records: g.records,
+        score: aggregateScore,
+        maxConfidence,
+        latestCreatedAt,
+        latestRecord
+      };
+    }).sort((left, right) => right.score - left.score);
+
+    const winner = rankedGroups[0];
+    if (winner && winner.latestRecord) {
+      const latest = winner.latestRecord;
+      const days = Math.max(0, (Date.now() - winner.latestCreatedAt) / (1000 * 60 * 60 * 24));
+      
+      let decay_status = "current";
+      if (days > 30) decay_status = "expired";
+      else if (days > 10) decay_status = "stale";
+      else if (days > 3) decay_status = "aging";
+
+      resolved.push({
+        ...latest,
+        value: winner.value,
+        confidence: Number(winner.maxConfidence.toFixed(3)),
+        decay_status,
+        evidence_count: winner.records.length,
+        entry_type: latest.entry_type || "app_observation"
+      });
+    }
+  }
+
+  return resolved;
 }
 
 export function buildCapPacket({
@@ -85,27 +228,20 @@ export function buildCapPacket({
     throw new TypeError("cap_request must include request_id, app_id, connection_id, and purpose.")
   }
 
-  const approved = retrieveApprovedContextFields(approved_memory_records, cap_request, { allowedSensitiveFieldPaths })
-  const matchesByRequest = matchRequestedFields(requested.map(itemText), approved, { threshold: 0.12 })
-  const allowedByField = new Map()
-  const missing_context = []
-
-  requested.forEach((item, index) => {
-    const matches = matchesByRequest[index]?.matches || []
-    const best = matches[0]
-    if (!best) {
-      missing_context.push({
-        description: item.description,
-        field_hint: item.field_hint || undefined,
-        category_hint: item.category_hint || undefined,
-        required: item.required,
-        reason: "No approved matching memory."
-      })
-      return
+  // Use raw records for quarantined boundary checks (prevents silent leakage via upstream filters).
+  const rawMatchesByRequest = matchRequestedFields(requested.map(itemText), approved_memory_records, { threshold: 0.12 })
+  for (const result of rawMatchesByRequest) {
+    const best = result?.matches?.[0]
+    if (best?.memory && isQuarantinedMemory(best.memory)) {
+      const fieldPath = best.memory.field_path || best.memory.path || "<unknown_field>"
+      throw new TypeError(`Quarantined memory selected for CAP packet: field_path=${fieldPath}`)
     }
-    const memory = best.memory
-    if (!allowedByField.has(memory.field_path)) allowedByField.set(memory.field_path, { memory, score: best.score })
-  })
+  }
+
+  const approved = retrieveApprovedContextFields(approved_memory_records, cap_request, { allowedSensitiveFieldPaths })
+  const resolvedApproved = resolveContradictoryRecords(approved)
+  const matchesByRequest = matchRequestedFields(requested.map(itemText), resolvedApproved, { threshold: 0.12 })
+  const { allowedByField, missing_context } = selectCapMatchesOrThrowQuarantined(requested, resolvedApproved, matchesByRequest)
 
   const allowed_context = [...allowedByField.values()].map(({ memory, score }) => ({
     field_path: memory.field_path,
@@ -113,7 +249,10 @@ export function buildCapPacket({
     category: memory.category || "general",
     sensitivity: memory.sensitivity || "normal",
     source: memorySource(memory),
-    confidence: memory.confidence !== undefined ? Number(memory.confidence) : Number(score.toFixed(3))
+    confidence: memory.confidence !== undefined ? Number(memory.confidence) : Number(score.toFixed(3)),
+    decay_status: memory.decay_status || "current",
+    evidence_count: memory.evidence_count !== undefined ? memory.evidence_count : 1,
+    entry_type: memory.entry_type || "app_observation"
   }))
 
   return {

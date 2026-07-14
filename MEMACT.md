@@ -1,28 +1,37 @@
-# Memact Memory Notes
+# Memact Memory
 
-Memact means act-on-memory.
+Memory is the storage layer that keeps the context you have approved.
 
-Memory stores accepted user memory after Wiki review. It keeps the records,
-source trails, edits, corrections, deleted/forgotten state, and app-safe
-summaries needed for later retrieval.
+## What Memory Does
 
-The Memory engine supports CRUD and RAG-style retrieval:
+Memory acts as the database for your provider. It stores:
+- Your approved context (the facts you accept or edit).
+- The evidence chains showing which apps suggested what data and when.
+- The age and decay status of each fact.
+- Your review history (what you accepted, modified, or rejected).
 
-- create, read, update, and delete memory records
-- retrieve memories for a query
-- build compact RAG input from allowed memories
-- keep raw graph-style access behind a separate permission boundary
-- build task context packets for memory-blind local workers
+## Context Intelligence
 
-Memory does not check app access, shape category input, or decide what the
-user accepts. Access, Context, and Wiki handle those steps before Memory stores
-what survives.
+When apps request your context through CAP, Memory helps resolve conflicting information:
+- **Evidence Weighting**: Calculates an overall confidence score (0.0 to 1.0) using source trust levels and record age.
+- **Freshness**: Tracks when data is current, aging, stale, or expired.
+- **Contradiction Resolution**: Compares contradicting app suggestions, ranks them based on evidence, and returns the strongest active value.
 
-## Worker boundary
+## Your Controls
 
-Memact workers do not receive the full Memory store.
+Memory never automatically accepts app suggestions. Everything stays pending until you decide what to do in Notebook.
 
-For tasks like onboarding prefill or field mapping, Memory builds a small
-`memact.task_context_packet.v0` packet. The packet includes only approved field
-fragments for one app and one connection. The current worker is local and
-deterministic; future model workers should keep the same packet boundary.
+You can set records to:
+- `pending`: Suggestion from an app waiting for your review.
+- `approved`: Accepted by you.
+- `user_verified`: Confirmed or edited by you.
+- `rejected`: Declined (retained only for logs).
+- `forgotten`: Deleted at your request.
+
+## Portability
+
+You can export your approved context at any time, allowing you to move to a different provider without losing your history.
+
+## License
+
+Apache 2.0. Memory is open and free.

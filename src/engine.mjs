@@ -1,10 +1,13 @@
 import { cosineSimilarity } from "./embeddings.mjs";
+import { auditContextLeakage } from "./audit.mjs";
 
 export const MEMORY_SCHEMA_VERSION = "memact.memory.v0";
 const DEFAULT_RETENTION_THRESHOLD = 0.34;
 const DEFAULT_DECAY_PER_DAY = 0.006;
 const MAX_SOURCES = 8;
 const DEFAULT_RAG_TOP = 6;
+// Local query cache for repetitive app context queries
+const queryCache = new Map();
 
 export const MEMORY_RELATION_TYPES = Object.freeze({
   ASSIMILATES: "assimilates",
@@ -161,27 +164,101 @@ function tokenSet(value) {
   );
 }
 
-function overlapScore(query, memory) {
-  const queryTokens = tokenSet(query);
-  if (!queryTokens.size) return 0;
-  const memoryTokens = tokenSet([
-    memory.label,
-    memory.summary,
-    memory.core_interpretation,
-    memory.action_tendency,
-    ...(memory.emotional_signature || []),
-    ...(memory.marker_categories || []),
-    ...(memory.matched_markers || []),
-    ...(memory.themes || []),
-    ...(memory.sources || []).map((source) => `${source.title} ${source.domain}`),
-  ].join(" "));
-  let overlap = 0;
-  for (const token of queryTokens) {
-    if (memoryTokens.has(token)) overlap += 1;
+// Lightweight fuzzy string similarity parser using Jaro-Winkler approximate alignment
+function calculateFuzzyMatchScore(stringA, stringB) {
+  const s1 = (stringA || "").toLowerCase().trim();
+  const s2 = (stringB || "").toLowerCase().trim();
+  
+  if (s1 === s2) return 1.0;
+  if (!s1 || !s2) return 0.0;
+
+  const matchWindow = Math.floor(Math.max(s1.length, s2.length) / 2) - 1;
+  const s1Matches = new Array(s1.length).fill(false);
+  const s2Matches = new Array(s2.length).fill(false);
+
+  let matches = 0;
+  let transpositions = 0;
+
+  for (let i = 0; i < s1.length; i++) {
+    const start = Math.max(0, i - matchWindow);
+    const end = Math.min(s2.length, i + matchWindow + 1);
+    
+    for (let j = start; j < end; j++) {
+      if (!s2Matches[j] && s1[i] === s2[j]) {
+        s1Matches[i] = true;
+        s2Matches[j] = true;
+        matches++;
+        break;
+      }
+    }
   }
-  return clamp(overlap / queryTokens.size);
+
+  if (matches === 0) return 0.0;
+
+  let k = 0;
+  for (let i = 0; i < s1.length; i++) {
+    if (s1Matches[i]) {
+      while (!s2Matches[k]) k++;
+      if (s1[i] !== s2[k]) transpositions++;
+      k++;
+    }
+  }
+
+  const jaro = (matches / s1.length + matches / s2.length + (matches - transpositions / 2) / matches) / 3;
+  return Number(jaro.toFixed(4));
 }
 
+// Update or extend the current overlapScore strategy to support fuzzy indexing queries
+export function overlapScore(query, memory) {
+  const queryString = String(query || "").trim();
+  const labelString = String(memory?.label || "").trim();
+  const summaryString = String(memory?.summary || "").trim();
+
+  // Primary exact checking passes
+  if (labelString.toLowerCase().includes(queryString.toLowerCase())) return 1.0;
+
+  // Fuzzy alignment resolution fallback for handling large-scale typos or partial queries
+  const labelFuzzy = calculateFuzzyMatchScore(queryString, labelString);
+  const summaryFuzzy = calculateFuzzyMatchScore(queryString, summaryString);
+
+  const highestFuzzyScore = Math.max(labelFuzzy, summaryFuzzy);
+  
+  // Return fuzzy matching score if it meets a reasonable confidence threshold (e.g., > 0.7)
+  return highestFuzzyScore > 0.7 ? highestFuzzyScore : 0.0;
+}
+
+/**
+ * Executes a query over the memory store using a local cache to optimize repetitive requests.
+ */
+export function queryContextWithCache(query, memories, options = {}) {
+  if (!query || !Array.isArray(memories)) return [];
+
+  // Generate a unique cache key based on the query text and current memory structure
+  const cacheKey = `${query}:${memories.map(m => `${m.id}-${m.strength}`).join(',')}`;
+
+  if (queryCache.has(cacheKey)) {
+    return queryCache.get(cacheKey);
+  }
+
+  // Cache miss: Calculate overlap scores across memories
+  const results = memories
+    .map((memory) => ({
+      memory,
+      score: overlapScore(query, memory)
+    }))
+    .filter((res) => res.score >= (options.threshold || 0.1))
+    .sort((a, b) => b.score - a.score);
+
+  queryCache.set(cacheKey, results);
+  return results;
+}
+
+/**
+ * Clears the query cache whenever the underlying memory database changes.
+ */
+export function clearQueryCache() {
+  queryCache.clear();
+}
 function activityMemoryFromRecord(record, options = {}) {
   const threshold = Number(options.retentionThreshold ?? DEFAULT_RETENTION_THRESHOLD);
   const sourcePacketId = normalize(record.packet_id || record.packet?.id || `packet:${record.id}`);
@@ -350,13 +427,28 @@ function decayMemory(memory, options = {}) {
   const ageDays = daysSince(memory.last_seen_at || memory.first_seen_at);
   const decay = Math.min(0.35, ageDays * decayPerDay);
   const decayedStrength = clamp(Number(memory.strength || 0) - decay);
+  
+  // Calculate automated TTL expiration trigger thresholds
+  let expirationReason = "";
+  let state = memory.state || "active";
+
+  if (ageDays >= 30) {
+    state = "forgotten";
+    expirationReason = `Inactive for ${Math.floor(ageDays)} days`;
+  } else if (decayedStrength <= Number(options.retentionThreshold ?? DEFAULT_RETENTION_THRESHOLD)) {
+    state = "forgotten";
+    expirationReason = `Memory retention strength fallen below threshold (${decayedStrength})`;
+  }
+
   return {
     ...memory,
+    state,
     strength: decayedStrength,
     decay: {
       age_days: Number(ageDays.toFixed(2)),
       decay_amount: Number(decay.toFixed(4)),
       decay_per_day: decayPerDay,
+      expiration_reason: expirationReason || null
     },
   };
 }
@@ -596,6 +688,8 @@ function normalizeMemoryInput(input = {}) {
 }
 
 export function buildMemoryStore({ inference, schema, intent, previousMemory = null, options = {} } = {}) {
+  // Clear the query cache since the store state is shifting
+  clearQueryCache();
   const activityMemories = (Array.isArray(inference?.records) ? inference.records : [])
     .map((record) => activityMemoryFromRecord(record, options))
     .filter(Boolean);
@@ -728,7 +822,15 @@ export function retrieveMemories(query, memoryStore, options = {}) {
   const top = Number(options.top ?? 8);
   const minScore = Number(options.minScore ?? 0.12);
   const memories = Array.isArray(memoryStore?.memories) ? memoryStore.memories : [];
-  return memories
+
+  // Track client configuration context for audit verification
+  const clientId = normalize(options.clientId || options.appId || "unknown_client");
+  const queriedPath = normalize(options.fieldPath || options.path || "generic_query");
+
+  // Extract audit parameters if provided in options
+  const auditContext = options.auditContext; // e.g., { currentCategory: 'urgency_cue', capabilities: [] }
+
+  const results = memories
     .map((memory) => {
       const lexical = overlapScore(query, memory);
       let searchScore = lexical;
@@ -738,17 +840,52 @@ export function retrieveMemories(query, memoryStore, options = {}) {
         searchScore = (lexical * (1 - alpha)) + (semantic * alpha);
       }
       const score = clamp((searchScore * 0.56) + (Number(memory.strength || 0) * 0.34) + (isSchemaMemory(memory) ? 0.1 : 0));
-      return {
+      
+      const BaseResult = {
         ...memory,
         retrieval_score: score,
         retrieval_reason: lexical || (options.queryEmbedding && Array.isArray(memory.embedding))
           ? "query overlap or semantic match with retained memory"
           : "high-strength retained memory",
       };
+
+      // If an audit context is supplied, evaluate leakage across the query text and memory content
+      if (auditContext) {
+        const textToAudit = `${query} ${memory.label} ${memory.summary}`;
+        const audit = auditContextLeakage(auditContext, textToAudit);
+        
+        BaseResult.audit = {
+          leaked: audit.leaked,
+          violations: audit.violations
+        };
+      }
+
+      return BaseResult;
     })
     .filter((memory) => memory.retrieval_score >= minScore)
+    // Optional: You can filter out leaked items entirely if required, 
+    // or just pass them through with the audit flag attached for the worker to handle.
     .sort((left, right) => right.retrieval_score - left.retrieval_score || right.strength - left.strength)
     .slice(0, top);
+
+  // Generate an atomic audit trail log payload matching the SQL structure
+  const auditEntry = {
+    id: `audit:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
+    client_id: clientId,
+    queried_path: queriedPath,
+    result_count: results.length,
+    timestamp: new Date().toISOString()
+  };
+
+  // Attach the compliance record to the resulting array object transparently 
+  // so wrappers can safely record it to database/state logs.
+  Object.defineProperty(results, "auditTrailLog", {
+    value: auditEntry,
+    writable: false,
+    enumerable: true
+  });
+
+  return results;
 }
 
 export function retrieveCognitiveSchemas(query, memoryStore, options = {}) {
@@ -1371,4 +1508,132 @@ function isSchemaMemory(memory) {
 
 function isIntentMemory(memory) {
   return memory?.type === "intent_memory";
+}
+// Stores historical genre weights to maintain a running baseline profile
+let USER_MEDIA_BASELINE = new Map(); 
+const BASELINE_DECAY = 0.95; // Keeps baseline adaptable but stable
+const ANOMALY_THRESHOLD = 0.70; // Sensitivity limit for structural signature shifts
+
+/**
+ * Updates the user's core media baseline with normal playback patterns.
+ * @param {Array<string>} genres 
+ */
+export function trainMediaBaseline(genres = []) {
+  // Decay old weights to let the baseline adapt smoothly over time
+  for (const [genre, weight] of USER_MEDIA_BASELINE.entries()) {
+    USER_MEDIA_BASELINE.set(genre, weight * BASELINE_DECAY);
+  }
+  // Add new signals
+  genres.forEach(genre => {
+    const normalized = genre.toLowerCase().trim();
+    USER_MEDIA_BASELINE.set(normalized, (USER_MEDIA_BASELINE.get(normalized) || 0) + 1.0);
+  });
+}
+
+/**
+ * Detects structural changes in playback content streams and returns 
+ * the target isolation partition ('shared-session' or 'default').
+ * * @param {Object} playbackEvent - { title, artist, genres: ['pop', 'rock'] }
+ * @returns {string} Target memory partition assignment
+ */
+export function detectSessionAnomaly(playbackEvent = {}) {
+  const incomingGenres = playbackEvent.genres || [];
+  if (incomingGenres.length === 0 || USER_MEDIA_BASELINE.size === 0) {
+    return "default"; // Default path if no baseline or incoming tracking metrics exist
+  }
+
+  let matchScore = 0;
+  let totalIncomingWeight = incomingGenres.length;
+
+  // Calculate alignment score against user's established historical tastes
+  incomingGenres.forEach(genre => {
+    const normalized = genre.toLowerCase().trim();
+    if (USER_MEDIA_BASELINE.has(normalized)) {
+      // Scale matching score based on how strong that genre is in baseline history
+      matchScore += Math.min(USER_MEDIA_BASELINE.get(normalized), 1.0);
+    }
+  });
+
+  const alignmentRatio = matchScore / totalIncomingWeight;
+
+  // An anomaly is triggered if the similarity falls drastically below our threshold
+  if (alignmentRatio < (1 - ANOMALY_THRESHOLD)) {
+    return "shared-session"; // Isolate under quarantined partition flag
+  }
+
+  return "default";
+}
+
+/**
+ * Resets the in-memory media baseline profile between test sweeps.
+ */
+export function clearMediaBaseline() {
+  USER_MEDIA_BASELINE.clear();
+}
+
+/**
+ * Automatically evaluates memory records and filters out any temporary 
+ * travel health context or requirements that have passed their self-destruct timestamp.
+ * * @param {Array<Object>} records - Array of memory objects to evaluate
+ * @returns {Array<Object>} Filtered array containing only non-expired records
+ */
+export function purgeExpiredRecords(records = []) {
+  if (!Array.isArray(records)) return [];
+  
+  const currentTime = Date.now();
+  
+  return records.filter(record => {
+    // Check if the record has an expiration or self-destruct timestamp
+    const expirationTime = record.selfDestructAt || record.expiresAt;
+    
+    if (expirationTime) {
+      // If the current time has reached or passed expiration, drop the record (return false)
+      return currentTime < new Date(expirationTime).getTime();
+    }
+    
+    // Keep records that don't have an expiration attribute
+    return true;
+  });
+}
+
+
+// Append-only commit log storage array
+let COMMIT_JOURNAL_LOG = [];
+
+// Maximum number of entries to retain before triggering rotation truncation
+const MAX_LOG_THRESHOLD = 50;
+
+/**
+ * Appends an entry to the journal log and automatically truncates old rows
+ * if the total length violates our maximum boundary size.
+ * * @param {Object|string} entry - The log event metadata or text string to commit
+ * @returns {Array<Object|string>} The updated, bounded journal log array
+ */
+export function appendCommitLog(entry) {
+  if (entry === undefined || entry === null) return COMMIT_JOURNAL_LOG;
+
+  // Append new log entry to the end of our journal track
+  COMMIT_JOURNAL_LOG.push(entry);
+
+  // If the log exceeds bounds, truncate older rows out of the array
+  if (COMMIT_JOURNAL_LOG.length > MAX_LOG_THRESHOLD) {
+    COMMIT_JOURNAL_LOG = COMMIT_JOURNAL_LOG.slice(-MAX_LOG_THRESHOLD);
+  }
+
+  return COMMIT_JOURNAL_LOG;
+}
+
+/**
+ * Retrieves the current state of the commit journal log array.
+ * @returns {Array<Object|string>}
+ */
+export function getCommitJournal() {
+  return COMMIT_JOURNAL_LOG;
+}
+
+/**
+ * Resets the journal log state between validation sweeps.
+ */
+export function clearCommitJournal() {
+  COMMIT_JOURNAL_LOG = [];
 }
