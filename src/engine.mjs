@@ -1,3 +1,5 @@
+import { cosineSimilarity } from "./embeddings.mjs";
+
 export const MEMORY_SCHEMA_VERSION = "memact.memory.v0";
 const DEFAULT_RETENTION_THRESHOLD = 0.34;
 const DEFAULT_DECAY_PER_DAY = 0.006;
@@ -729,12 +731,18 @@ export function retrieveMemories(query, memoryStore, options = {}) {
   return memories
     .map((memory) => {
       const lexical = overlapScore(query, memory);
-      const score = clamp((lexical * 0.56) + (Number(memory.strength || 0) * 0.34) + (isSchemaMemory(memory) ? 0.1 : 0));
+      let searchScore = lexical;
+      if (options.queryEmbedding && Array.isArray(memory.embedding)) {
+        const semantic = cosineSimilarity(options.queryEmbedding, memory.embedding);
+        const alpha = Number(options.alpha ?? 0.5);
+        searchScore = (lexical * (1 - alpha)) + (semantic * alpha);
+      }
+      const score = clamp((searchScore * 0.56) + (Number(memory.strength || 0) * 0.34) + (isSchemaMemory(memory) ? 0.1 : 0));
       return {
         ...memory,
         retrieval_score: score,
-        retrieval_reason: lexical
-          ? "query overlap with retained memory"
+        retrieval_reason: lexical || (options.queryEmbedding && Array.isArray(memory.embedding))
+          ? "query overlap or semantic match with retained memory"
           : "high-strength retained memory",
       };
     })

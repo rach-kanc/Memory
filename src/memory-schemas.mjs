@@ -57,6 +57,7 @@ const COMMON_MEMORY_KEYS = new Set([
   "path",
   "attributes",
   "decay",
+  "embedding",
 ]);
 
 const ENTITY_KEYS = Object.freeze({
@@ -305,6 +306,13 @@ function validateMemoryEntity(memory, index, errors) {
   }
   if (record.last_seen_at !== undefined && record.last_seen_at !== "" && !isIsoish(record.last_seen_at)) {
     errors.push(schemaError(`${path}.last_seen_at`, "must be ISO timestamp"));
+  }
+  if (record.embedding !== undefined) {
+    if (!Array.isArray(record.embedding)) {
+      errors.push(schemaError(`${path}.embedding`, "expected array"));
+    } else if (record.embedding.some((val) => typeof val !== "number" || !Number.isFinite(val))) {
+      errors.push(schemaError(`${path}.embedding`, "expected array of numbers"));
+    }
   }
 }
 
