@@ -1,3 +1,5 @@
+import { acquireToken } from "./auth/oauth.mjs";
+
 export function cosineSimilarity(a, b) {
   if (!Array.isArray(a) || !Array.isArray(b)) {
     return 0;
@@ -19,7 +21,7 @@ export function cosineSimilarity(a, b) {
   return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
-export function createEmbeddingService({ provider = "mock", apiKey = "", endpoint = "", dimension = 1536 } = {}) {
+export function createEmbeddingService({ provider = "mock", apiKey = "", endpoint = "", dimension = 1536, oauth = null } = {}) {
   return {
     provider,
     dimension,
@@ -48,13 +50,24 @@ export function createEmbeddingService({ provider = "mock", apiKey = "", endpoin
         return embedding;
       }
       
-      if (provider === "openai") {
+      if (provider === "openai" || provider === "azure") {
         const url = endpoint || "https://api.openai.com/v1/embeddings";
+        
+        let token = apiKey;
+        if (oauth) {
+          token = await acquireToken({
+            tokenEndpoint: oauth.tokenEndpoint,
+            clientId: oauth.clientId,
+            clientSecret: oauth.clientSecret,
+            resource: oauth.resource
+          });
+        }
+
         const response = await fetch(url, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
             input: cleanText,
@@ -62,7 +75,7 @@ export function createEmbeddingService({ provider = "mock", apiKey = "", endpoin
           }),
         });
         if (!response.ok) {
-          throw new Error(`OpenAI Embeddings API error: ${response.statusText}`);
+          throw new Error(`${provider} Embeddings API error: ${response.statusText}`);
         }
         const data = await response.json();
         return data.data[0].embedding;
