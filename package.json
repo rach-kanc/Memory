@@ -28,6 +28,7 @@
     "./context-worker": "./src/context-worker.mjs",
     "./temporal-paths": "./src/temporal-paths.mjs",
     "./cli": "./src/cli.mjs",
+    "./embeddings": "./src/embeddings.mjs",
     "./memory-stats": "./src/memory-stats.mjs",
     "./stats-server": "./src/stats-server.mjs",
     "./read-write-executor": "./src/read-write-executor.mjs"

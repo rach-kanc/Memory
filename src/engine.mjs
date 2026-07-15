@@ -1,3 +1,4 @@
+import { cosineSimilarity } from "./embeddings.mjs";
 import { auditContextLeakage } from "./audit.mjs";
 
 export const MEMORY_SCHEMA_VERSION = "memact.memory.v0";
@@ -832,13 +833,19 @@ export function retrieveMemories(query, memoryStore, options = {}) {
   const results = memories
     .map((memory) => {
       const lexical = overlapScore(query, memory);
-      const score = clamp((lexical * 0.56) + (Number(memory.strength || 0) * 0.34) + (isSchemaMemory(memory) ? 0.1 : 0));
+      let searchScore = lexical;
+      if (options.queryEmbedding && Array.isArray(memory.embedding)) {
+        const semantic = cosineSimilarity(options.queryEmbedding, memory.embedding);
+        const alpha = Number(options.alpha ?? 0.5);
+        searchScore = (lexical * (1 - alpha)) + (semantic * alpha);
+      }
+      const score = clamp((searchScore * 0.56) + (Number(memory.strength || 0) * 0.34) + (isSchemaMemory(memory) ? 0.1 : 0));
       
       const BaseResult = {
         ...memory,
         retrieval_score: score,
-        retrieval_reason: lexical
-          ? "query overlap with retained memory"
+        retrieval_reason: lexical || (options.queryEmbedding && Array.isArray(memory.embedding))
+          ? "query overlap or semantic match with retained memory"
           : "high-strength retained memory",
       };
 

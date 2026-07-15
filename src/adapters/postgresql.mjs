@@ -15,10 +15,24 @@ export function createPostgresMemoryAdapter({ pool, userId, description = "Postg
       const client = await pool.connect();
       try {
         const { rows } = await client.query(
-          'SELECT content FROM memact_memory_entries WHERE user_id = $1',
+          'SELECT content, embedding FROM memact_memory_entries WHERE user_id = $1',
           [userId]
         );
-        const memories = rows.map(row => JSON.parse(row.content));
+        const memories = rows.map(row => {
+          const memory = JSON.parse(row.content);
+          if (row.embedding) {
+            if (Array.isArray(row.embedding)) {
+              memory.embedding = row.embedding;
+            } else if (typeof row.embedding === 'string') {
+              try {
+                memory.embedding = JSON.parse(row.embedding);
+              } catch {
+                memory.embedding = row.embedding.replace(/[\[\]]/g, '').split(',').map(Number);
+              }
+            }
+          }
+          return memory;
+        });
         
         // For V1, we rely on the in-memory array of memories.
         return restoreMemoryFromBackup({
@@ -61,18 +75,20 @@ export function createPostgresMemoryAdapter({ pool, userId, description = "Postg
           const content = JSON.stringify(memory);
           const visibility = memory.sensitivity === 'sensitive' ? 'private' : 'public';
           const isStarred = (memory.strength || 0) >= 0.8;
+          const embedding = Array.isArray(memory.embedding) ? `[${memory.embedding.join(',')}]` : null;
           
           await client.query(`
-            INSERT INTO memact_memory_entries (id, user_id, category, content, visibility, is_starred, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, NOW())
+            INSERT INTO memact_memory_entries (id, user_id, category, content, visibility, is_starred, embedding, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
             ON CONFLICT (id) DO UPDATE SET
               user_id = EXCLUDED.user_id,
               category = EXCLUDED.category,
               content = EXCLUDED.content,
               visibility = EXCLUDED.visibility,
               is_starred = EXCLUDED.is_starred,
+              embedding = EXCLUDED.embedding,
               updated_at = NOW()
-          `, [id, userId, category, content, visibility, isStarred]);
+          `, [id, userId, category, content, visibility, isStarred, embedding]);
         }
         
         await client.query('COMMIT');

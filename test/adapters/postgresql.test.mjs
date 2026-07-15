@@ -9,8 +9,8 @@ test("requires pool and userId", () => {
 
 test("load retrieves and parses memories", async () => {
   const mockRows = [
-    { content: JSON.stringify({ id: "mem1", type: "activity_memory", label: "Memory 1" }) },
-    { content: JSON.stringify({ id: "mem2", type: "activity_memory", label: "Memory 2" }) }
+    { content: JSON.stringify({ id: "mem1", type: "activity_memory", label: "Memory 1" }), embedding: "[0.1,0.2]" },
+    { content: JSON.stringify({ id: "mem2", type: "activity_memory", label: "Memory 2" }), embedding: [0.3,0.4] }
   ];
   
   const queries = [];
@@ -31,8 +31,10 @@ test("load retrieves and parses memories", async () => {
   
   assert.equal(result.memories.length, 2);
   assert.equal(result.memories[0].id, "mem1");
+  assert.deepEqual(result.memories[0].embedding, [0.1, 0.2]);
+  assert.deepEqual(result.memories[1].embedding, [0.3, 0.4]);
   assert.equal(queries.length, 1);
-  assert.match(queries[0].text, /SELECT content FROM memact_memory_entries/);
+  assert.match(queries[0].text, /SELECT content, embedding FROM memact_memory_entries/);
   assert.deepEqual(queries[0].values, ["user-123"]);
 });
 
@@ -54,7 +56,7 @@ test("save performs upserts and deletes missing memories", async () => {
   await adapter.save({
     schema_version: "memact.memory.v0",
     memories: [
-      { id: "mem1", type: "activity_memory", label: "Memory 1", category: "work" },
+      { id: "mem1", type: "activity_memory", label: "Memory 1", category: "work", embedding: [0.5,0.6] },
       { id: "mem2", type: "activity_memory", label: "Memory 2", sensitivity: "sensitive", strength: 0.9 }
     ]
   });
@@ -72,12 +74,14 @@ test("save performs upserts and deletes missing memories", async () => {
   assert.equal(queries[2].values[2], "work"); // category
   assert.equal(queries[2].values[4], "public"); // visibility
   assert.equal(queries[2].values[5], false); // is_starred
+  assert.equal(queries[2].values[6], "[0.5,0.6]"); // embedding
   
   // Verify INSERT mem2
   assert.match(queries[3].text, /INSERT INTO memact_memory_entries/);
   assert.equal(queries[3].values[0], "mem2"); // id
   assert.equal(queries[3].values[4], "private"); // visibility
   assert.equal(queries[3].values[5], true); // is_starred
+  assert.equal(queries[3].values[6], null); // embedding null
 });
 
 test("save handles empty memories array", async () => {

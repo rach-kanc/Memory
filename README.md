@@ -10,6 +10,28 @@ Memory acts as the database for your provider. It stores:
 - The age and decay status of each fact.
 - Your review history (what you accepted, modified, or rejected).
 
+## Core Responsibilities
+- **Secure Persistence**: Holds approved statements securely.
+- **Index & Retrieval**: Fast indexing to retrieve only relevant approved statements when queried by authorized apps.
+
+## Database Persistence (PostgreSQL)
+For production environments, Memact Memory provides a PostgreSQL adapter aligned with the V1 Supabase architecture.
+
+### Setup
+1. Run the database migration script located at `database/migration_v1.sql` to create the required `memact_memory_entries` and `memact_app_permissions` tables.
+2. Initialize the adapter in your server code:
+```javascript
+import pg from 'pg';
+import { createMemoryRepository } from 'memact-memory/storage';
+import { createPostgresMemoryAdapter } from 'memact-memory/adapters/postgresql';
+
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+
+const memoryStore = createMemoryRepository(
+  createPostgresMemoryAdapter({ pool, userId: 'user-uuid-here' })
+);
+```
+
 ## Local Backup and Restore
 
 You can export approved memory entries to an AES-256-GCM encrypted JSON backup and restore them later. Only approved states (`active`, `accepted`, `approved`, `edited`, `user_verified`) are included. Pending, deleted, or forgotten entries are skipped.
