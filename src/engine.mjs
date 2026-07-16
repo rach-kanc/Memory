@@ -1,5 +1,6 @@
 import { cosineSimilarity } from "./embeddings.mjs";
 import { auditContextLeakage } from "./audit.mjs";
+import { validateVectorSearchAccess } from "./auth/oauth.mjs";
 
 export const MEMORY_SCHEMA_VERSION = "memact.memory.v0";
 const DEFAULT_RETENTION_THRESHOLD = 0.34;
@@ -819,6 +820,9 @@ export function deleteMemory(memoryId, memoryStore = {}, options = {}) {
 }
 
 export function retrieveMemories(query, memoryStore, options = {}) {
+  if (options.queryEmbedding) {
+    validateVectorSearchAccess(options);
+  }
   const top = Number(options.top ?? 8);
   const minScore = Number(options.minScore ?? 0.12);
   const memories = Array.isArray(memoryStore?.memories) ? memoryStore.memories : [];

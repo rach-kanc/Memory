@@ -71,3 +71,45 @@ test("hybrid retrieval with embeddings", () => {
   });
   assert.equal(res2[0].id, "mem:1");
 });
+
+test("createEmbeddingService with OAuth config fetches token", async (t) => {
+  let fetchCount = 0;
+  const originalFetch = global.fetch;
+  
+  global.fetch = async (url, options) => {
+    fetchCount++;
+    
+    if (url === "https://mock.auth/token") {
+      return {
+        ok: true,
+        json: async () => ({ access_token: "mock-oauth-token" })
+      };
+    }
+    
+    if (url === "https://api.openai.com/v1/embeddings") {
+      assert.equal(options.headers.Authorization, "Bearer mock-oauth-token");
+      return {
+        ok: true,
+        json: async () => ({ data: [{ embedding: [0.5, 0.5] }] })
+      };
+    }
+    throw new Error(`Unexpected fetch url: ${url}`);
+  };
+
+  try {
+    const service = createEmbeddingService({
+      provider: "openai",
+      oauth: {
+        tokenEndpoint: "https://mock.auth/token",
+        clientId: "client-id",
+        clientSecret: "client-secret"
+      }
+    });
+    
+    const emb = await service.getEmbedding("test");
+    assert.deepEqual(emb, [0.5, 0.5]);
+    assert.equal(fetchCount, 2); // 1 for token, 1 for embedding
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
